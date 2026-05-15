@@ -1,0 +1,46 @@
+COMO EXECUTAR A APLICAÇÃO
+================================
+
+PRÉ-REQUISITOS:
+  - Java 21+
+  - Maven 3.8+ (ou use o wrapper ./mvnw incluído)
+  - Node.js 18+
+
+PASSO 1 — Iniciar o Backend:
+
+  No diretório raiz do projeto (sistema-flashcards/):
+
+    Windows PowerShell:
+      .\mvnw.cmd spring-boot:run
+
+    Linux/Mac:
+      ./mvnw spring-boot:run
+
+  O backend estará disponível em: http://localhost:8080
+  Console H2 (banco de dados): http://localhost:8080/h2-console
+    JDBC URL: jdbc:h2:mem:flashcardsdb
+    User: sa | Password: (vazio)
+
+PASSO 2 — Iniciar o Frontend:
+
+  No diretório frontend/:
+
+    npm install
+    npm run dev
+
+  O frontend estará disponível em: http://localhost:5173
+
+PASSO 3 — Usar a Aplicação:
+
+  1. Abra http://localhost:5173 no navegador
+  2. Na aba "Gerenciar": crie novos flashcards preenchendo pergunta e resposta
+  3. Na aba "Estudar":
+     - O card exibe a pergunta
+     - Clique em "Ver Resposta" para revelar a resposta
+     - Use "Anterior" e "Próximo" para navegar entre os cards
+  4. Para excluir um card, volte para "Gerenciar" e clique em "Excluir"
+
+  Obs: 4 flashcards de exemplo são criados automaticamente na primeira
+  inicialização do backend para facilitar a demonstração.
+
+================================================================================
