@@ -16,6 +16,16 @@ export async function criarFlashcard(pergunta, resposta) {
   return res.json()
 }
 
+export async function atualizarFlashcard(id, pergunta, resposta) {
+  const res = await fetch(`${BASE_URL}/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pergunta, resposta })
+  })
+  if (!res.ok) throw new Error('Erro ao atualizar flashcard')
+  return res.json()
+}
+
 export async function deletarFlashcard(id) {
   const res = await fetch(`${BASE_URL}/${id}`, { method: 'DELETE' })
   if (!res.ok) throw new Error('Erro ao deletar flashcard')

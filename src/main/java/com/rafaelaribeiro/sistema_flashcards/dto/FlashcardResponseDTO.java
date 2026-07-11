@@ -6,5 +6,6 @@ public record FlashcardResponseDTO(
     Long id,
     String pergunta,
     String resposta,
-    LocalDateTime criadoEm
+    LocalDateTime criadoEm,
+    LocalDateTime atualizadoEm
 ) {}

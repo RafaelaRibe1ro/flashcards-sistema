@@ -1,5 +1,6 @@
 package com.rafaelaribeiro.sistema_flashcards.controller;
 
+import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardHistoricoResponseDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardRequestDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardResponseDTO;
 import com.rafaelaribeiro.sistema_flashcards.service.FlashcardService;
@@ -29,13 +30,41 @@ public class FlashcardController {
         return ResponseEntity.ok(service.listarTodos());
     }
 
+    @GetMapping("/buscar")
+    public ResponseEntity<List<FlashcardResponseDTO>> buscarPorPergunta(@RequestParam String termo) {
+        return ResponseEntity.ok(service.buscarPorPergunta(termo));
+    }
+
+    @GetMapping("/historico")
+    public ResponseEntity<List<FlashcardHistoricoResponseDTO>> buscarHistorico() {
+        return ResponseEntity.ok(service.buscarHistorico());
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<FlashcardResponseDTO> buscarPorId(@PathVariable Long id) {
+        return service.buscarPorId(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
+    @GetMapping("/{id}/historico")
+    public ResponseEntity<List<FlashcardHistoricoResponseDTO>> buscarHistoricoPorFlashcard(@PathVariable Long id) {
+        return ResponseEntity.ok(service.buscarHistoricoPorFlashcard(id));
+    }
+
+    @PutMapping("/{id}")
+    public ResponseEntity<FlashcardResponseDTO> atualizar(@PathVariable Long id,
+                                                          @RequestBody FlashcardRequestDTO dto) {
+        return service.atualizar(id, dto)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> deletar(@PathVariable Long id) {
-        boolean deletado = service.deletar(id);
-        if (deletado) {
+        if (service.deletar(id)) {
             return ResponseEntity.noContent().build();
-        } else {
-            return ResponseEntity.notFound().build();
         }
+        return ResponseEntity.notFound().build();
     }
 }

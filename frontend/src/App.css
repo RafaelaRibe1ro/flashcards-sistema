@@ -198,8 +198,32 @@ button[type='submit']:hover {
   margin-top: 0;
 }
 
-.btn-deletar {
+.item-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   flex-shrink: 0;
+}
+
+.btn-editar {
+  background: none;
+  border: 1.5px solid var(--primary);
+  color: var(--primary);
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.btn-editar:hover {
+  background: var(--primary);
+  color: white;
+}
+
+.btn-deletar {
   background: none;
   border: 1.5px solid var(--danger);
   color: var(--danger);
@@ -215,6 +239,57 @@ button[type='submit']:hover {
 .btn-deletar:hover {
   background: var(--danger);
   color: white;
+}
+
+.list-item-content textarea {
+  width: 100%;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn-salvar {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+.btn-salvar:hover {
+  background: var(--primary-dark);
+}
+
+.btn-cancelar {
+  background: none;
+  border: 1.5px solid var(--border);
+  color: var(--text-muted);
+  padding: 7px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.btn-cancelar:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.field-label.atualizado {
+  color: var(--primary);
+  margin-top: 8px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.75rem;
 }
 
 .vazio {
