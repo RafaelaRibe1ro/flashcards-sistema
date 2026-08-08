@@ -1,5 +1,7 @@
 package com.rafaelaribeiro.sistema_flashcards;
 
+import com.rafaelaribeiro.sistema_flashcards.client.CategoriaClient;
+import com.rafaelaribeiro.sistema_flashcards.dto.CategoriaDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardHistoricoResponseDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardRequestDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardResponseDTO;
@@ -32,12 +34,15 @@ class FlashcardServiceTest {
     @Mock
     private FlashcardHistoricoRepository historicoRepository;
 
+    @Mock
+    private CategoriaClient categoriaClient;
+
     @InjectMocks
     private FlashcardServiceImpl service;
 
     @Test
     void deveCriarFlashcardERegistrarHistorico() {
-        FlashcardRequestDTO dto = new FlashcardRequestDTO("O que é JPA?", "API de persistência.");
+        FlashcardRequestDTO dto = new FlashcardRequestDTO("O que é JPA?", "API de persistência.", null);
 
         Flashcard flashcardSalvo = new Flashcard("O que é JPA?", "API de persistência.");
         flashcardSalvo.setId(1L);
@@ -53,6 +58,45 @@ class FlashcardServiceTest {
         ArgumentCaptor<FlashcardHistorico> captor = ArgumentCaptor.forClass(FlashcardHistorico.class);
         verify(historicoRepository).save(captor.capture());
         assertThat(captor.getValue().getAcao()).isEqualTo("CRIADO");
+    }
+
+    @Test
+    void deveEnriquecerComNomeDaCategoriaQuandoCategoriaIdPresente() {
+        Flashcard flashcard = flashcardComId(1L, "O que é Feign?", "Cliente HTTP declarativo.");
+        flashcard.setCategoriaId(5L);
+        when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
+        when(categoriaClient.buscarPorId(5L)).thenReturn(new CategoriaDTO(5L, "Spring", "Framework Java", LocalDateTime.now()));
+
+        Optional<FlashcardResponseDTO> resultado = service.buscarPorId(1L);
+
+        assertThat(resultado).isPresent();
+        assertThat(resultado.get().categoriaId()).isEqualTo(5L);
+        assertThat(resultado.get().categoriaNome()).isEqualTo("Spring");
+    }
+
+    @Test
+    void deveRetornarCategoriaNomeNuloQuandoCategoriaIdAusente() {
+        Flashcard flashcard = flashcardComId(1L, "Pergunta", "Resposta");
+        when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
+
+        Optional<FlashcardResponseDTO> resultado = service.buscarPorId(1L);
+
+        assertThat(resultado).isPresent();
+        assertThat(resultado.get().categoriaNome()).isNull();
+        verify(categoriaClient, never()).buscarPorId(any());
+    }
+
+    @Test
+    void deveRetornarCategoriaNomeNuloQuandoCategoriaServiceFalhar() {
+        Flashcard flashcard = flashcardComId(1L, "Pergunta", "Resposta");
+        flashcard.setCategoriaId(5L);
+        when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
+        when(categoriaClient.buscarPorId(5L)).thenThrow(new RuntimeException("categoria-service indisponível"));
+
+        Optional<FlashcardResponseDTO> resultado = service.buscarPorId(1L);
+
+        assertThat(resultado).isPresent();
+        assertThat(resultado.get().categoriaNome()).isNull();
     }
 
     @Test
@@ -93,7 +137,7 @@ class FlashcardServiceTest {
         when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
         when(repository.save(any(Flashcard.class))).thenReturn(flashcard);
 
-        FlashcardRequestDTO dto = new FlashcardRequestDTO("Pergunta nova", "Resposta nova");
+        FlashcardRequestDTO dto = new FlashcardRequestDTO("Pergunta nova", "Resposta nova", null);
         Optional<FlashcardResponseDTO> resultado = service.atualizar(1L, dto);
 
         assertThat(resultado).isPresent();
@@ -106,7 +150,7 @@ class FlashcardServiceTest {
     void deveAtualizarInexistenteRetornarVazio() {
         when(repository.findById(99L)).thenReturn(Optional.empty());
 
-        Optional<FlashcardResponseDTO> resultado = service.atualizar(99L, new FlashcardRequestDTO("x", "y"));
+        Optional<FlashcardResponseDTO> resultado = service.atualizar(99L, new FlashcardRequestDTO("x", "y", null));
 
         assertThat(resultado).isEmpty();
         verify(historicoRepository, never()).save(any());

@@ -23,6 +23,9 @@ public class Flashcard {
     @Column
     private LocalDateTime atualizadoEm;
 
+    @Column
+    private Long categoriaId;
+
     public Flashcard() {}
 
     public Flashcard(String pergunta, String resposta) {
@@ -54,4 +57,7 @@ public class Flashcard {
 
     public LocalDateTime getAtualizadoEm() { return atualizadoEm; }
     public void setAtualizadoEm(LocalDateTime atualizadoEm) { this.atualizadoEm = atualizadoEm; }
+
+    public Long getCategoriaId() { return categoriaId; }
+    public void setCategoriaId(Long categoriaId) { this.categoriaId = categoriaId; }
 }

@@ -6,21 +6,21 @@ export async function listarFlashcards() {
   return res.json()
 }
 
-export async function criarFlashcard(pergunta, resposta) {
+export async function criarFlashcard(pergunta, resposta, categoriaId) {
   const res = await fetch(BASE_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pergunta, resposta })
+    body: JSON.stringify({ pergunta, resposta, categoriaId })
   })
   if (!res.ok) throw new Error('Erro ao criar flashcard')
   return res.json()
 }
 
-export async function atualizarFlashcard(id, pergunta, resposta) {
+export async function atualizarFlashcard(id, pergunta, resposta, categoriaId) {
   const res = await fetch(`${BASE_URL}/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pergunta, resposta })
+    body: JSON.stringify({ pergunta, resposta, categoriaId })
   })
   if (!res.ok) throw new Error('Erro ao atualizar flashcard')
   return res.json()

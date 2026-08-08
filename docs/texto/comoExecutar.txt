@@ -4,7 +4,20 @@ COMO EXECUTAR A APLICAÇÃO
   - Java 21+
   - Node.js 18+
 
-PASSO 1 — Iniciar o Backend:
+PASSO 1 — Iniciar o microsserviço de Categorias (categoria-service):
+
+  No diretório categoria-service/:
+
+    Windows PowerShell:
+      .\mvnw.cmd spring-boot:run
+
+    Linux/Mac:
+      ./mvnw spring-boot:run
+
+  Sobe na porta 8081. Deve ser iniciado ANTES do monólito, pois o monólito
+  consulta este serviço para exibir o nome da categoria de cada flashcard.
+
+PASSO 2 — Iniciar o Backend (monólito):
 
   No diretório raiz do projeto (sistema-flashcards/):
 
@@ -14,24 +27,91 @@ PASSO 1 — Iniciar o Backend:
     Linux/Mac:
       ./mvnw spring-boot:run
 
-PASSO 2 — Iniciar o Frontend:
+  Sobe na porta 8080.
+
+PASSO 3 — Iniciar o Frontend:
 
   No diretório frontend/:
 
     npm install
     npm run dev
 
-PASSO 3 — Usar a Aplicação:
+PASSO 4 — Usar a Aplicação:
 
   1. Abra http://localhost:5173 no navegador
-  2. Na aba "Gerenciar": crie novos flashcards preenchendo pergunta e resposta
-  3. Na aba "Estudar":
+  2. Na aba "Categorias": crie categorias (ex: "Java", "Spring Boot")
+  3. Na aba "Gerenciar": crie flashcards preenchendo pergunta, resposta e,
+     opcionalmente, selecione uma categoria
+  4. Na aba "Estudar":
      - O card exibe a pergunta
      - Clique em "Ver Resposta" para revelar a resposta
      - Use "Anterior" e "Próximo" para navegar entre os cards
-  4. Para excluir um card, volte para "Gerenciar" e clique em "Excluir"
+  5. Para excluir um card ou categoria, use o botão "Excluir" na respectiva lista
 
-  Obs: 4 flashcards de exemplo são criados automaticamente na primeira
-  inicialização do backend para facilitar a demonstração.
+  Obs: flashcards e categorias de exemplo são criados automaticamente na
+  primeira inicialização de cada backend para facilitar a demonstração.
+
+  Obs 2: se o categoria-service não estiver rodando, o sistema de flashcards
+  continua funcionando normalmente — os cards apenas aparecem sem o nome
+  da categoria (o monólito trata a falha de comunicação de forma simples,
+  sem interromper a listagem).
 
 ================================================================================
+
+
+Os três serviços ainda estão de pé (categoria-service:8081, monólito:8080, frontend:5173). Aqui vai como testar e visualizar:
+
+Visualizar a aplicação rodando
+
+Como os três serviços já estão ativos nesta sessão, basta abrir no navegador:
+
+┌──────────────────────────────────┬─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│               URL                │                                              O quê                                              │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ http://localhost:5173            │ Frontend React — abas "Gerenciar", "Categorias", "Estudar"                                      │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ http://localhost:8080/h2-console │ Console H2 do monólito (JDBC URL: jdbc:h2:file:./data/flashcardsdb, user sa, sem senha)         │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ http://localhost:8081/h2-console │ Console H2 do categoria-service (JDBC URL: jdbc:h2:file:./data/categoriadb, user sa, sem senha) │
+└──────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+Fluxo sugerido no navegador: aba Categorias → criar uma categoria → aba Gerenciar → criar um flashcard selecionando essa categoria no <select> → confirmar que o card aparece com a etiqueta da categoria.
+
+Se preferir subir do zero (ex: em outra sessão), veja docs/texto/comoExecutar.txt.
+
+Testar o endpoint novo (categoria-service) via curl
+
+# Listar categorias
+curl http://localhost:8081/api/categorias
+
+# Criar uma categoria
+curl -X POST http://localhost:8081/api/categorias \
+  -H "Content-Type: application/json" \
+  -d '{"nome":"Docker","descricao":"Containers e orquestracao"}'
+
+# Buscar por id (troque 1 pelo id retornado acima)
+curl http://localhost:8081/api/categorias/1
+
+# Atualizar
+curl -X PUT http://localhost:8081/api/categorias/1 \
+  -H "Content-Type: application/json" \
+  -d '{"nome":"Docker e Kubernetes","descricao":"Atualizado"}'
+
+# Excluir
+curl -X DELETE http://localhost:8081/api/categorias/1
+
+Testar a integração Feign (monólito → categoria-service)
+
+# Criar um flashcard associado a uma categoria existente (ex: id 2 = "Spring Boot")
+curl -X POST http://localhost:8080/api/flashcards \
+  -H "Content-Type: application/json" \
+  -d '{"pergunta":"O que e Feign?","resposta":"Cliente HTTP declarativo.","categoriaId":2}'
+
+A resposta deve trazer "categoriaNome":"Spring Boot" — prova de que o monólito consultou o categoria-service com sucesso via Feign.
+
+Testar a resiliência (opcional, mostra a simplificação deliberada de tratamento de erro):
+# Derrube o categoria-service (Ctrl+C no terminal dele) e repita a listagem:
+curl http://localhost:8080/api/flashcards
+# Os flashcards continuam aparecendo, mas "categoriaNome" vem null em vez de dar erro 500
+
+Observação: o shell Git Bash/Windows engasga com acentos dentro de aspas simples no curl -d (dá erro de encoding UTF-8) — nos exemplos acima evitei acentuação por causa disso; no navegador (formulário React) isso não é problema.
