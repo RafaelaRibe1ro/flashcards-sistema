@@ -1,12 +1,14 @@
 package com.rafaelaribeiro.sistema_flashcards;
 
-import com.rafaelaribeiro.sistema_flashcards.client.CategoriaClient;
-import com.rafaelaribeiro.sistema_flashcards.dto.CategoriaDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardHistoricoResponseDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardRequestDTO;
 import com.rafaelaribeiro.sistema_flashcards.dto.FlashcardResponseDTO;
+import com.rafaelaribeiro.sistema_flashcards.messaging.FlashcardEventPublisher;
+import com.rafaelaribeiro.sistema_flashcards.messaging.FlashcardHistoricoEvent;
+import com.rafaelaribeiro.sistema_flashcards.model.CategoriaCache;
 import com.rafaelaribeiro.sistema_flashcards.model.Flashcard;
 import com.rafaelaribeiro.sistema_flashcards.model.FlashcardHistorico;
+import com.rafaelaribeiro.sistema_flashcards.repository.CategoriaCacheRepository;
 import com.rafaelaribeiro.sistema_flashcards.repository.FlashcardHistoricoRepository;
 import com.rafaelaribeiro.sistema_flashcards.repository.FlashcardRepository;
 import com.rafaelaribeiro.sistema_flashcards.service.FlashcardServiceImpl;
@@ -35,13 +37,16 @@ class FlashcardServiceTest {
     private FlashcardHistoricoRepository historicoRepository;
 
     @Mock
-    private CategoriaClient categoriaClient;
+    private CategoriaCacheRepository categoriaCacheRepository;
+
+    @Mock
+    private FlashcardEventPublisher eventPublisher;
 
     @InjectMocks
     private FlashcardServiceImpl service;
 
     @Test
-    void deveCriarFlashcardERegistrarHistorico() {
+    void deveCriarFlashcardEPublicarEventoDeHistorico() {
         FlashcardRequestDTO dto = new FlashcardRequestDTO("O que é JPA?", "API de persistência.", null);
 
         Flashcard flashcardSalvo = new Flashcard("O que é JPA?", "API de persistência.");
@@ -53,19 +58,19 @@ class FlashcardServiceTest {
         FlashcardResponseDTO resultado = service.criar(dto);
 
         assertThat(resultado.pergunta()).isEqualTo("O que é JPA?");
-        verify(historicoRepository).save(any(FlashcardHistorico.class));
 
-        ArgumentCaptor<FlashcardHistorico> captor = ArgumentCaptor.forClass(FlashcardHistorico.class);
-        verify(historicoRepository).save(captor.capture());
-        assertThat(captor.getValue().getAcao()).isEqualTo("CRIADO");
+        ArgumentCaptor<FlashcardHistoricoEvent> captor = ArgumentCaptor.forClass(FlashcardHistoricoEvent.class);
+        verify(eventPublisher).publicar(captor.capture());
+        assertThat(captor.getValue().acao()).isEqualTo("CRIADO");
+        verify(historicoRepository, never()).save(any());
     }
 
     @Test
-    void deveEnriquecerComNomeDaCategoriaQuandoCategoriaIdPresente() {
-        Flashcard flashcard = flashcardComId(1L, "O que é Feign?", "Cliente HTTP declarativo.");
+    void deveEnriquecerComNomeDaCategoriaQuandoPresenteNoCache() {
+        Flashcard flashcard = flashcardComId(1L, "O que é evento?", "Notificação de algo que aconteceu.");
         flashcard.setCategoriaId(5L);
         when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
-        when(categoriaClient.buscarPorId(5L)).thenReturn(new CategoriaDTO(5L, "Spring", "Framework Java", LocalDateTime.now()));
+        when(categoriaCacheRepository.findById(5L)).thenReturn(Optional.of(new CategoriaCache(5L, "Spring", "Framework Java")));
 
         Optional<FlashcardResponseDTO> resultado = service.buscarPorId(1L);
 
@@ -83,15 +88,15 @@ class FlashcardServiceTest {
 
         assertThat(resultado).isPresent();
         assertThat(resultado.get().categoriaNome()).isNull();
-        verify(categoriaClient, never()).buscarPorId(any());
+        verify(categoriaCacheRepository, never()).findById(any());
     }
 
     @Test
-    void deveRetornarCategoriaNomeNuloQuandoCategoriaServiceFalhar() {
+    void deveRetornarCategoriaNomeNuloQuandoCategoriaAindaNaoChegouNoCache() {
         Flashcard flashcard = flashcardComId(1L, "Pergunta", "Resposta");
         flashcard.setCategoriaId(5L);
         when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
-        when(categoriaClient.buscarPorId(5L)).thenThrow(new RuntimeException("categoria-service indisponível"));
+        when(categoriaCacheRepository.findById(5L)).thenReturn(Optional.empty());
 
         Optional<FlashcardResponseDTO> resultado = service.buscarPorId(1L);
 
@@ -132,7 +137,7 @@ class FlashcardServiceTest {
     }
 
     @Test
-    void deveAtualizarFlashcardERegistrarHistorico() {
+    void deveAtualizarFlashcardEPublicarEventoDeHistorico() {
         Flashcard flashcard = flashcardComId(1L, "Pergunta antiga", "Resposta antiga");
         when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
         when(repository.save(any(Flashcard.class))).thenReturn(flashcard);
@@ -141,9 +146,9 @@ class FlashcardServiceTest {
         Optional<FlashcardResponseDTO> resultado = service.atualizar(1L, dto);
 
         assertThat(resultado).isPresent();
-        ArgumentCaptor<FlashcardHistorico> captor = ArgumentCaptor.forClass(FlashcardHistorico.class);
-        verify(historicoRepository).save(captor.capture());
-        assertThat(captor.getValue().getAcao()).isEqualTo("ATUALIZADO");
+        ArgumentCaptor<FlashcardHistoricoEvent> captor = ArgumentCaptor.forClass(FlashcardHistoricoEvent.class);
+        verify(eventPublisher).publicar(captor.capture());
+        assertThat(captor.getValue().acao()).isEqualTo("ATUALIZADO");
     }
 
     @Test
@@ -153,20 +158,20 @@ class FlashcardServiceTest {
         Optional<FlashcardResponseDTO> resultado = service.atualizar(99L, new FlashcardRequestDTO("x", "y", null));
 
         assertThat(resultado).isEmpty();
-        verify(historicoRepository, never()).save(any());
+        verify(eventPublisher, never()).publicar(any());
     }
 
     @Test
-    void deveDeletarFlashcardERegistrarHistorico() {
+    void deveDeletarFlashcardEPublicarEventoDeHistorico() {
         Flashcard flashcard = flashcardComId(1L, "Pergunta", "Resposta");
         when(repository.findById(1L)).thenReturn(Optional.of(flashcard));
 
         boolean resultado = service.deletar(1L);
 
         assertThat(resultado).isTrue();
-        ArgumentCaptor<FlashcardHistorico> captor = ArgumentCaptor.forClass(FlashcardHistorico.class);
-        verify(historicoRepository).save(captor.capture());
-        assertThat(captor.getValue().getAcao()).isEqualTo("DELETADO");
+        ArgumentCaptor<FlashcardHistoricoEvent> captor = ArgumentCaptor.forClass(FlashcardHistoricoEvent.class);
+        verify(eventPublisher).publicar(captor.capture());
+        assertThat(captor.getValue().acao()).isEqualTo("DELETADO");
         verify(repository).deleteById(1L);
     }
 
@@ -177,7 +182,7 @@ class FlashcardServiceTest {
         boolean resultado = service.deletar(99L);
 
         assertThat(resultado).isFalse();
-        verify(historicoRepository, never()).save(any());
+        verify(eventPublisher, never()).publicar(any());
         verify(repository, never()).deleteById(any());
     }
 

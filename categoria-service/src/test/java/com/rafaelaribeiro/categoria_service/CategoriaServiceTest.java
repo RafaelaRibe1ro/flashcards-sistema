@@ -2,6 +2,7 @@ package com.rafaelaribeiro.categoria_service;
 
 import com.rafaelaribeiro.categoria_service.dto.CategoriaRequestDTO;
 import com.rafaelaribeiro.categoria_service.dto.CategoriaResponseDTO;
+import com.rafaelaribeiro.categoria_service.messaging.CategoriaEventPublisher;
 import com.rafaelaribeiro.categoria_service.model.Categoria;
 import com.rafaelaribeiro.categoria_service.repository.CategoriaRepository;
 import com.rafaelaribeiro.categoria_service.service.CategoriaServiceImpl;
@@ -25,6 +26,9 @@ class CategoriaServiceTest {
     @Mock
     private CategoriaRepository repository;
 
+    @Mock
+    private CategoriaEventPublisher eventPublisher;
+
     @InjectMocks
     private CategoriaServiceImpl service;
 
@@ -41,6 +45,7 @@ class CategoriaServiceTest {
         CategoriaResponseDTO resultado = service.criar(dto);
 
         assertThat(resultado.nome()).isEqualTo("Java");
+        verify(eventPublisher).publicar(categoriaSalva, "criada");
     }
 
     @Test
@@ -86,6 +91,7 @@ class CategoriaServiceTest {
 
         assertThat(resultado).isPresent();
         assertThat(resultado.get().nome()).isEqualTo("Nome novo");
+        verify(eventPublisher).publicar(categoria, "atualizada");
     }
 
     @Test
@@ -99,22 +105,25 @@ class CategoriaServiceTest {
 
     @Test
     void deveDeletarCategoriaExistente() {
-        when(repository.existsById(1L)).thenReturn(true);
+        Categoria categoria = categoriaComId(1L, "Java");
+        when(repository.findById(1L)).thenReturn(Optional.of(categoria));
 
         boolean resultado = service.deletar(1L);
 
         assertThat(resultado).isTrue();
         verify(repository).deleteById(1L);
+        verify(eventPublisher).publicar(categoria, "deletada");
     }
 
     @Test
     void deveDeletarInexistenteRetornarFalso() {
-        when(repository.existsById(99L)).thenReturn(false);
+        when(repository.findById(99L)).thenReturn(Optional.empty());
 
         boolean resultado = service.deletar(99L);
 
         assertThat(resultado).isFalse();
         verify(repository, never()).deleteById(any());
+        verify(eventPublisher, never()).publicar(any(), any());
     }
 
     private Categoria categoriaComId(Long id, String nome) {

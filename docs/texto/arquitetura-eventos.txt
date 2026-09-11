@@ -1,0 +1,231 @@
+ETAPA 4 — ARQUITETURA ORIENTADA A EVENTOS COM RABBITMQ
+================================================================================
+
+OBJETIVO
+--------
+Refatorar os dois pontos de acoplamento síncrono que existiam entre os
+componentes do sistema (monólito → categoria-service via Feign, e
+gravação do histórico de flashcards dentro da mesma transação do CRUD),
+substituindo-os por comunicação assíncrona baseada em eventos, usando
+RabbitMQ como message broker e Spring AMQP (Spring Boot) para a integração.
+
+
+1. PRÓS E CONTRAS DA ARQUITETURA ORIENTADA A EVENTOS
+-----------------------------------------------------
+
+Prós observados neste projeto:
+
+  - Desacoplamento temporal: o monólito não depende mais de o
+    categoria-service estar no ar, respondendo rápido, no momento exato da
+    leitura de um flashcard. Se o categoria-service cair, o monólito
+    continua funcionando normalmente usando o último dado conhecido.
+  - Resiliência: a falha de um consumidor (ex.: listener de histórico) não
+    derruba o produtor (o CRUD de flashcards continua funcionando mesmo que
+    o RabbitMQ esteja fora do ar — o publish é "fire-and-forget" com
+    try/catch).
+  - Escalabilidade independente: cada serviço escala e evolui sem
+    coordenar deploys síncronos com o outro.
+  - Múltiplos consumidores "de graça": qualquer novo serviço que precise
+    saber quando uma categoria muda (ex.: um futuro serviço de
+    relatórios) só precisa declarar uma fila nova ligada ao exchange
+    `categoria.events`, sem tocar no categoria-service.
+
+Contras / trade-offs assumidos deliberadamente:
+
+  - Consistência eventual em vez de forte: existe uma janela de tempo em
+    que o cache de categorias do monólito (ou o histórico) pode estar
+    desatualizado em relação à origem. Neste projeto isso é aceitável
+    (não é dado financeiro/crítico), mas precisa ser avaliado caso a caso.
+  - Ordem de inicialização importa: se o categoria-service publicar um
+    evento ANTES de o monólito existir (fila ainda não declarada/ligada ao
+    exchange), essa mensagem específica é perdida — RabbitMQ não entrega
+    para uma fila que ainda não estava vinculada no momento do publish.
+    Na prática, isso apareceu durante os testes: as categorias semeadas
+    pelo `DataInitializer` do categoria-service só populam o cache do
+    monólito se este já estiver rodando (fila já declarada) quando o
+    categoria-service sobe. Mitigação usada: subir o categoria-service e o
+    monólito com o RabbitMQ já no ar (a fila do monólito, uma vez criada,
+    é durável e sobrevive a reinícios do próprio monólito). Uma correção
+    mais robusta — fora do escopo aqui — seria um Transactional Outbox no
+    categoria-service, garantindo que todo evento gerado é eventualmente
+    entregue, ou a republicação periódica do estado completo.
+  - Sem garantia transacional entre "salvar no banco" e "publicar o
+    evento": o publish acontece logo após o save, mas em uma falha exata
+    entre os dois passos (ex.: banco salva e o processo cai antes de
+    publicar) o evento nunca sai. Aceitável para este projeto didático;
+    em produção se resolveria com Transactional Outbox ou Change Data
+    Capture (CDC).
+  - Mais peças móveis para depurar: com REST síncrono, um erro aparece na
+    hora, na própria chamada. Com eventos, é preciso olhar o painel do
+    RabbitMQ (mensagens em espera, DLQ) para entender o que está
+    acontecendo — exige mais observabilidade.
+
+Cenários onde compensa usar arquitetura orientada a eventos (e por que fez
+sentido aqui):
+
+  - Quando o consumidor não precisa de resposta imediata (o histórico de
+    flashcards é só auditoria — ninguém espera a resposta HTTP até ele ser
+    gravado).
+  - Quando um dado de outro serviço é lido com muito mais frequência do
+    que é escrito (o nome da categoria é lido em toda listagem de
+    flashcards, mas muda raramente) — manter uma réplica local (cache)
+    atualizada por eventos é muito mais barato do que uma chamada de rede
+    síncrona a cada leitura.
+  - Quando se quer que um serviço continue operando mesmo com
+    dependências fora do ar (graceful degradation).
+
+Quando síncrono (REST/Feign) ainda seria preferível, mesmo em um sistema
+com múltiplos serviços:
+  - Quando a resposta do outro serviço é indispensável para decidir o que
+    fazer AGORA (ex.: autorizar um pagamento) e um dado "quase certo" não
+    serve.
+  - Quando a simplicidade de depuração importa mais do que o
+    desacoplamento (poucos serviços, times pequenos, MVPs).
+
+
+2. PADRÕES DE MENSAGEM IMPLEMENTADOS
+-------------------------------------
+
+Dois padrões distintos foram usados, cada um resolvendo um problema
+diferente:
+
+  a) Pub/Sub com Topic Exchange — "Event-Carried State Transfer"
+     Usado para: sincronizar o nome das categorias do categoria-service
+     para o monólito, sem chamada síncrona.
+     Exchange: `categoria.events` (topic)
+     Routing keys: `categoria.criada`, `categoria.atualizada`, `categoria.deletada`
+     Produtor: categoria-service (um evento por escrita)
+     Consumidor: monólito, fila `monolito.categoria.sync.queue`, binding
+     `categoria.*` — mantém uma tabela local `categoria_cache` (réplica
+     de leitura) para responder `categoriaNome` sem depender de rede.
+     Por que Topic Exchange (e não Fanout): usar `categoria.*` já deixa a
+     porta aberta para um futuro consumidor assinar só uma parte dos
+     eventos (ex.: `categoria.deletada` para um serviço de limpeza),
+     sem mudar o produtor.
+
+  b) Fila de trabalho assíncrona com retry + Dead Letter Queue — "Auditoria
+     desacoplada"
+     Usado para: gravar o histórico de alterações de flashcards fora da
+     transação principal do CRUD.
+     Exchange: `flashcard.events` (topic)
+     Routing keys: `flashcard.criado`, `flashcard.atualizado`, `flashcard.deletado`
+     Produtor e consumidor: o próprio monólito (mesmo serviço, mas
+     desacoplado internamente — o CRUD não sabe nem se importa se o
+     histórico foi gravado).
+     Fila principal: `flashcard.historico.queue`, com
+     `x-dead-letter-exchange`/`x-dead-letter-routing-key` apontando para
+     `flashcard.historico.queue.dlq`.
+     Retry: até 3 tentativas (`spring.rabbitmq.listener.simple.retry`)
+     antes de a mensagem ser rejeitada definitivamente e cair na DLQ —
+     evita perder o evento por uma falha passageira (ex.: banco
+     momentaneamente indisponível), mas também evita ficar reprocessando
+     uma mensagem "envenenada" para sempre.
+
+
+3. DIAGRAMA DE ARQUITETURA
+----------------------------
+
+  [ Frontend React ] (localhost:5173)
+        |            \
+        | REST        \ REST
+        v              v
+  [ Monólito ]    [ categoria-service ]
+  (localhost:8080)     (localhost:8081)
+        |                    |
+        v                    v
+  [ H2: flashcardsdb ]  [ H2: categoriadb ]
+        |                    |
+        |   consome          |  publica
+        |   categoria.*      |  categoria.criada/atualizada/deletada
+        v                    v
+  +---------------------------------------------------+
+  |                   RabbitMQ                         |
+  |                                                     |
+  |  Exchange "categoria.events" (topic)                |
+  |     -> Queue "monolito.categoria.sync.queue"         |
+  |                                                     |
+  |  Exchange "flashcard.events" (topic)                |
+  |     -> Queue "flashcard.historico.queue"             |
+  |          -> (falha após retries) DLQ                 |
+  |             "flashcard.historico.queue.dlq"          |
+  +---------------------------------------------------+
+        ^                    |
+        | publica            | consome
+        | flashcard.*        v
+  [ Monólito: FlashcardServiceImpl ]  -->  [ FlashcardHistoricoListener ]
+                                                  |
+                                                  v
+                                        [ tabela flashcard_historico ]
+
+  Painel de administração do RabbitMQ: http://localhost:15672 (guest/guest)
+  — permite ver filas, mensagens em espera, taxa de ack e a DLQ em tempo
+  real durante uma demonstração.
+
+
+4. FLUXOS DE EVENTO PASSO A PASSO
+------------------------------------
+
+Criar uma categoria:
+  1. Cliente faz POST /api/categorias no categoria-service.
+  2. `CategoriaServiceImpl.criar` salva no H2 (categoriadb) e chama
+     `CategoriaEventPublisher.publicar(categoria, "criada")`.
+  3. O evento é publicado no exchange `categoria.events` com routing key
+     `categoria.criada`.
+  4. `CategoriaEventListener` do monólito (assinante da fila
+     `monolito.categoria.sync.queue`) recebe o evento e faz upsert na
+     tabela `categoria_cache`.
+  5. Daí em diante, qualquer flashcard com esse `categoriaId` retorna o
+     `categoriaNome` correto, sem nenhuma chamada de rede na hora da
+     leitura.
+
+Atualizar/excluir uma categoria: mesmo fluxo, routing keys
+`categoria.atualizada` / `categoria.deletada`; o listener faz upsert ou
+`deleteById` no cache, respectivamente.
+
+Criar/atualizar/excluir um flashcard:
+  1. Cliente chama o endpoint correspondente em /api/flashcards no
+     monólito.
+  2. `FlashcardServiceImpl` salva o flashcard e publica um
+     `FlashcardHistoricoEvent` no exchange `flashcard.events` (routing key
+     `flashcard.criado`/`flashcard.atualizado`/`flashcard.deletado`) —
+     SEM gravar o histórico diretamente nem esperar confirmação.
+  3. A resposta HTTP volta para o cliente imediatamente.
+  4. Em paralelo (assíncrono), `FlashcardHistoricoListener` consome a
+     fila `flashcard.historico.queue` e grava a linha em
+     `flashcard_historico`.
+  5. Se a gravação falhar, o Spring tenta de novo até 3 vezes; se
+     continuar falhando, a mensagem vai para
+     `flashcard.historico.queue.dlq` (visível no painel de administração)
+     em vez de ser perdida ou travar o consumidor.
+
+
+5. SIMPLIFICAÇÕES DELIBERADAS (nível adequado ao escopo da disciplina)
+-------------------------------------------------------------------------
+
+  - Sem Transactional Outbox: o publish acontece depois do save, sem
+    garantia atômica entre os dois. Ver seção 1.
+  - Sem exclusividade/HA no RabbitMQ: uma única instância via
+    docker-compose, sem cluster nem mirroring de filas — adequado para
+    ambiente de desenvolvimento/demonstração.
+  - DTOs de evento duplicados entre os dois serviços (sem módulo Java
+    compartilhado) — decisão consciente para manter os dois projetos Maven
+    totalmente independentes, como já era o caso com o DTO usado no Feign
+    na Etapa 3.
+  - Sem replay/republicação de eventos perdidos: se uma mensagem for
+    perdida (ex.: fila não existia ainda), não há mecanismo automático de
+    "ressincronizar" o cache — seria necessário um endpoint de
+    reconciliação manual, fora do escopo aqui.
+
+
+6. COMO EXECUTAR
+-------------------
+
+  1. `docker compose up -d` (na raiz do repo) — sobe o RabbitMQ.
+     Painel de administração: http://localhost:15672 (guest/guest).
+  2. Subir o categoria-service (`mvnw spring-boot:run` em
+     `categoria-service/`).
+  3. Subir o monólito (`mvnw spring-boot:run` na raiz).
+  4. Subir o frontend (`npm run dev` em `frontend/`).
+
+  Ver `docs/texto/comoExecutar.txt` para o passo a passo completo e
+  exemplos de curl.

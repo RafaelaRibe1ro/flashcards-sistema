@@ -133,3 +133,15 @@ COMO EXECUTAR
 
   Ver docs/texto/comoExecutar.txt (atualizado com o passo de subir o
   categoria-service antes do monólito).
+
+
+ETAPA 4
+---------------
+
+  A partir da Etapa 4, a integração Feign descrita neste documento foi
+  substituída por comunicação assíncrona via RabbitMQ: o monólito não
+  chama mais o categoria-service em tempo real, e sim mantém um cache
+  local (`categoria_cache`) atualizado por eventos publicados pelo
+  categoria-service. Este arquivo permanece como registro histórico da
+  Etapa 3; a arquitetura atual está documentada em
+  docs/texto/arquitetura-eventos.txt.

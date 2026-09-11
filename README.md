@@ -4,22 +4,29 @@
 
   ## Tecnologias
 
-  **Back-end:** Java 21, Spring Boot, Spring Data JPA, Spring Cloud OpenFeign.
+  **Back-end:** Java 21, Spring Boot, Spring Data JPA, Spring AMQP (RabbitMQ).
   **Front-end:** React
 
   ## Arquitetura
 
   O projeto é composto por dois serviços independentes, cada um com seu próprio
-  banco H2:
+  banco H2, mais um broker RabbitMQ para comunicação assíncrona entre eles:
 
   - **sistema-flashcards** (raiz, porta 8080) — monólito com o CRUD de
     flashcards e histórico de alterações.
   - **categoria-service** (porta 8081) — microsserviço responsável pelas
     categorias/matérias dos flashcards.
+  - **RabbitMQ** (via `docker compose up -d`, porta 5672, painel em
+    `:15672`) — broker de eventos usado para sincronizar categorias e
+    para a gravação assíncrona do histórico de flashcards.
 
-  O monólito consulta o categoria-service via Spring Cloud OpenFeign para
-  exibir o nome da categoria de cada flashcard. Detalhes em
-  `docs/texto/microservico-categorias.txt`.
+  O categoria-service publica eventos de categoria (criação/atualização/
+  exclusão) no RabbitMQ; o monólito consome esses eventos e mantém uma
+  réplica local (cache) para exibir o nome da categoria de cada flashcard,
+  sem chamada síncrona entre os serviços. Detalhes completos em
+  `docs/texto/arquitetura-eventos.txt` (arquitetura orientada a eventos,
+  Etapa 4) e `docs/texto/microservico-categorias.txt` (microsserviço,
+  Etapa 3).
 
   ## Funcionalidades
 

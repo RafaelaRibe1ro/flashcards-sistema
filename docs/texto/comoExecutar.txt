@@ -3,6 +3,20 @@ COMO EXECUTAR A APLICAÇÃO
 
   - Java 21+
   - Node.js 18+
+  - Docker (para o RabbitMQ)
+
+PASSO 0 — Subir o RabbitMQ:
+
+  No diretório raiz do projeto (sistema-flashcards/):
+
+    docker compose up -d
+
+  Sobe o broker na porta 5672 e o painel de administração em
+  http://localhost:15672 (usuário/senha: guest/guest). É usado pelo
+  categoria-service e pelo monólito para trocar eventos (ver
+  docs/texto/arquitetura-eventos.txt). Sem ele no ar, os dois serviços
+  ainda sobem e funcionam, mas a sincronização de categorias e a gravação
+  do histórico de flashcards ficam pendentes até o broker aparecer.
 
 PASSO 1 — Iniciar o microsserviço de Categorias (categoria-service):
 
@@ -14,8 +28,9 @@ PASSO 1 — Iniciar o microsserviço de Categorias (categoria-service):
     Linux/Mac:
       ./mvnw spring-boot:run
 
-  Sobe na porta 8081. Deve ser iniciado ANTES do monólito, pois o monólito
-  consulta este serviço para exibir o nome da categoria de cada flashcard.
+  Sobe na porta 8081. Recomendado iniciar ANTES do monólito, para que a
+  fila de sincronização do monólito já exista quando o categoria-service
+  publicar os eventos das categorias de exemplo (`DataInitializer`).
 
 PASSO 2 — Iniciar o Backend (monólito):
 
@@ -53,8 +68,9 @@ PASSO 4 — Usar a Aplicação:
 
   Obs 2: se o categoria-service não estiver rodando, o sistema de flashcards
   continua funcionando normalmente — os cards apenas aparecem sem o nome
-  da categoria (o monólito trata a falha de comunicação de forma simples,
-  sem interromper a listagem).
+  da categoria (o monólito lê o nome de um cache local, sincronizado por
+  eventos do RabbitMQ, e não faz mais chamada síncrona ao categoria-service;
+  ver docs/texto/arquitetura-eventos.txt).
 
 ================================================================================
 
@@ -73,6 +89,8 @@ Como os três serviços já estão ativos nesta sessão, basta abrir no navegado
 │ http://localhost:8080/h2-console │ Console H2 do monólito (JDBC URL: jdbc:h2:file:./data/flashcardsdb, user sa, sem senha)         │
 ├──────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ http://localhost:8081/h2-console │ Console H2 do categoria-service (JDBC URL: jdbc:h2:file:./data/categoriadb, user sa, sem senha) │
+├──────────────────────────────────┼─────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ http://localhost:15672           │ Painel de administração do RabbitMQ (guest/guest) — filas, mensagens, DLQ                       │
 └──────────────────────────────────┴─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
 Fluxo sugerido no navegador: aba Categorias → criar uma categoria → aba Gerenciar → criar um flashcard selecionando essa categoria no <select> → confirmar que o card aparece com a etiqueta da categoria.
@@ -100,18 +118,36 @@ curl -X PUT http://localhost:8081/api/categorias/1 \
 # Excluir
 curl -X DELETE http://localhost:8081/api/categorias/1
 
-Testar a integração Feign (monólito → categoria-service)
+Testar a sincronização por eventos (categoria-service → RabbitMQ → monólito)
 
-# Criar um flashcard associado a uma categoria existente (ex: id 2 = "Spring Boot")
+# Com o RabbitMQ e os dois serviços no ar, crie uma categoria
+curl -X POST http://localhost:8081/api/categorias \
+  -H "Content-Type: application/json" \
+  -d '{"nome":"RabbitMQ","descricao":"Broker de mensagens"}'
+# Anote o id retornado
+
+# Crie um flashcard associado a essa categoria
 curl -X POST http://localhost:8080/api/flashcards \
   -H "Content-Type: application/json" \
-  -d '{"pergunta":"O que e Feign?","resposta":"Cliente HTTP declarativo.","categoriaId":2}'
+  -d '{"pergunta":"O que e um evento?","resposta":"Uma notificacao assincrona de algo que aconteceu.","categoriaId":5}'
 
-A resposta deve trazer "categoriaNome":"Spring Boot" — prova de que o monólito consultou o categoria-service com sucesso via Feign.
+A resposta já deve trazer "categoriaNome":"RabbitMQ" — o monólito não fez
+nenhuma chamada síncrona; ele leu do cache local (`categoria_cache`),
+populado pelo evento que o categoria-service publicou no RabbitMQ.
+Acompanhe as filas em tempo real no painel http://localhost:15672
+(guest/guest) enquanto executa os comandos acima.
 
-Testar a resiliência (opcional, mostra a simplificação deliberada de tratamento de erro):
-# Derrube o categoria-service (Ctrl+C no terminal dele) e repita a listagem:
+Testar a resiliência (o monólito não depende mais do categoria-service em tempo real):
+# Derrube o categoria-service (Ctrl+C no terminal dele) e repita a criação/listagem:
 curl http://localhost:8080/api/flashcards
-# Os flashcards continuam aparecendo, mas "categoriaNome" vem null em vez de dar erro 500
+# Os flashcards continuam aparecendo normalmente, com o categoriaNome que já
+# estava no cache — sem erro 500 e sem lentidão, porque não há mais chamada
+# de rede síncrona nesse caminho.
+
+Testar a fila de trabalho do histórico:
+curl http://localhost:8080/api/flashcards/1/historico
+# A gravação do histórico agora é assíncrona (fila flashcard.historico.queue);
+# no painel do RabbitMQ é possível ver a mensagem sendo publicada e confirmada
+# (ack) quase instantaneamente após cada criação/atualização/exclusão de flashcard.
 
 Observação: o shell Git Bash/Windows engasga com acentos dentro de aspas simples no curl -d (dá erro de encoding UTF-8) — nos exemplos acima evitei acentuação por causa disso; no navegador (formulário React) isso não é problema.

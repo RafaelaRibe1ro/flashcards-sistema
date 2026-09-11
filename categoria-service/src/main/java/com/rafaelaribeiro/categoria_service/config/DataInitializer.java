@@ -1,7 +1,8 @@
 package com.rafaelaribeiro.categoria_service.config;
 
-import com.rafaelaribeiro.categoria_service.model.Categoria;
+import com.rafaelaribeiro.categoria_service.dto.CategoriaRequestDTO;
 import com.rafaelaribeiro.categoria_service.repository.CategoriaRepository;
+import com.rafaelaribeiro.categoria_service.service.CategoriaService;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.stereotype.Component;
 
@@ -11,20 +12,22 @@ import java.util.List;
 public class DataInitializer implements CommandLineRunner {
 
     private final CategoriaRepository repository;
+    private final CategoriaService service;
 
-    public DataInitializer(CategoriaRepository repository) {
+    public DataInitializer(CategoriaRepository repository, CategoriaService service) {
         this.repository = repository;
+        this.service = service;
     }
 
     @Override
     public void run(String... args) {
         if (repository.count() == 0) {
-            repository.saveAll(List.of(
-                new Categoria("Java", "Conceitos da linguagem Java e orientação a objetos"),
-                new Categoria("Spring Boot", "Framework para desenvolvimento de aplicações Java"),
-                new Categoria("React", "Biblioteca JavaScript para construção de interfaces"),
-                new Categoria("Arquitetura de Software", "Padrões e práticas de arquitetura, incluindo microsserviços")
-            ));
+            List.of(
+                new CategoriaRequestDTO("Java", "Conceitos da linguagem Java e orientação a objetos"),
+                new CategoriaRequestDTO("Spring Boot", "Framework para desenvolvimento de aplicações Java"),
+                new CategoriaRequestDTO("React", "Biblioteca JavaScript para construção de interfaces"),
+                new CategoriaRequestDTO("Arquitetura de Software", "Padrões e práticas de arquitetura, incluindo microsserviços")
+            ).forEach(service::criar);
         }
     }
 }
