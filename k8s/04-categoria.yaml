@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: categoria-service
+  namespace: flashcards
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: categoria-service
+  template:
+    metadata:
+      labels:
+        app: categoria-service
+    spec:
+      # Espera o monólito ficar pronto, para a fila de sincronização já existir
+      # quando as categorias de exemplo forem publicadas
+      initContainers:
+        - name: espera-monolito
+          image: busybox
+          command: ["sh", "-c", "until wget -q -O- http://sistema-flashcards:8080/actuator/health/readiness; do echo aguardando monolito; sleep 3; done"]
+      containers:
+        - name: categoria-service
+          image: flashcards-categoria:1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: docker
+            - name: SPRING_RABBITMQ_HOST
+              value: rabbitmq
+            - name: MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT
+              value: http://zipkin:9411/api/v2/spans
+            - name: LOKI_URL
+              value: http://loki:3100/loki/api/v1/push
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 60
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: categoria-service
+  namespace: flashcards
+spec:
+  type: LoadBalancer
+  selector:
+    app: categoria-service
+  ports:
+    - port: 8081
+      targetPort: 8081

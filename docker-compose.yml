@@ -5,3 +5,84 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      retries: 5
+
+  # --- Microsserviços ---
+
+  sistema-flashcards:
+    build: .
+    image: flashcards-monolito:1.0
+    container_name: flashcards-monolito
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_RABBITMQ_HOST: rabbitmq
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      retries: 10
+
+  categoria-service:
+    build: ./categoria-service
+    image: flashcards-categoria:1.0
+    container_name: flashcards-categoria
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SPRING_RABBITMQ_HOST: rabbitmq
+      MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+      LOKI_URL: http://loki:3100/loki/api/v1/push
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      # sobe depois do monólito para a fila de sincronização já existir
+      sistema-flashcards:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    image: flashcards-frontend:1.0
+    container_name: flashcards-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - sistema-flashcards
+      - categoria-service
+
+  # --- Monitoramento ---
+
+  zipkin:
+    image: openzipkin/zipkin
+    container_name: flashcards-zipkin
+    ports:
+      - "9411:9411"
+
+  loki:
+    image: grafana/loki:3.4.2
+    container_name: flashcards-loki
+    ports:
+      - "3100:3100"
+
+  grafana:
+    image: grafana/grafana
+    container_name: flashcards-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoramento/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml
+    depends_on:
+      - loki
+      - zipkin

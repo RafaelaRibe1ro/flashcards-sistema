@@ -1,0 +1,10 @@
+target/
+data/
+.git/
+.github/
+.mvn/
+categoria-service/
+frontend/
+docs/
+k8s/
+monitoramento/

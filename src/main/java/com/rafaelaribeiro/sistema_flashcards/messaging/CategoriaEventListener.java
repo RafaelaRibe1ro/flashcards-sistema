@@ -21,6 +21,7 @@ public class CategoriaEventListener {
 
     @RabbitListener(queues = RabbitMQConfig.CATEGORIA_SYNC_QUEUE)
     public void handle(CategoriaEvent evento) {
+        log.info("Evento de categoria recebido: {} (id {})", evento.tipoEvento(), evento.id());
         switch (evento.tipoEvento()) {
             case "criada", "atualizada" -> repository.save(new CategoriaCache(evento.id(), evento.nome(), evento.descricao()));
             case "deletada" -> repository.deleteById(evento.id());

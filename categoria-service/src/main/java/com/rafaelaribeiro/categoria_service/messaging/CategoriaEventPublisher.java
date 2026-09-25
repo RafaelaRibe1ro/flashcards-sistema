@@ -26,6 +26,7 @@ public class CategoriaEventPublisher {
         String routingKey = "categoria." + tipoEvento;
         try {
             rabbitTemplate.convertAndSend(RabbitMQConfig.CATEGORIA_EVENTS_EXCHANGE, routingKey, evento);
+            log.info("Evento '{}' publicado para a categoria {}", routingKey, categoria.getId());
         } catch (Exception e) {
             log.warn("Não foi possível publicar o evento '{}' da categoria {}: {}", routingKey, categoria.getId(), e.getMessage());
         }

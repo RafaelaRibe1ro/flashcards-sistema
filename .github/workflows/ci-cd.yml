@@ -1,0 +1,61 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  # CI: roda os testes dos dois serviços Java
+  testes-backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        servico: [".", "categoria-service"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: maven
+      - name: Rodar testes
+        run: mvn -B test
+        working-directory: ${{ matrix.servico }}
+
+  # CI: verifica se o frontend compila
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Build do React
+        run: |
+          npm ci
+          npm run build
+        working-directory: frontend
+
+  # CD: se os testes passarem, gera as imagens Docker e publica no GitHub Container Registry
+  publicar-imagens:
+    needs: [testes-backend, build-frontend]
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login no GitHub Container Registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Build e push das imagens
+        run: |
+          DONO=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t ghcr.io/$DONO/flashcards-monolito:latest .
+          docker build -t ghcr.io/$DONO/flashcards-categoria:latest ./categoria-service
+          docker build -t ghcr.io/$DONO/flashcards-frontend:latest ./frontend
+          docker push ghcr.io/$DONO/flashcards-monolito:latest
+          docker push ghcr.io/$DONO/flashcards-categoria:latest
+          docker push ghcr.io/$DONO/flashcards-frontend:latest

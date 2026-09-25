@@ -1,0 +1,5 @@
+# Todos os recursos do sistema ficam no namespace "flashcards"
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: flashcards
